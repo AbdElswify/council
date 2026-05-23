@@ -1,0 +1,13 @@
+{
+  "name": "council",
+  "version": "0.1.0",
+  "description": "Flat multi-agent orchestration via /council — main session is the Mayor and dispatches dynamic specialist workers in parallel against an upfront integration contract, with two-pass audits (Mayor + neutral auditor) per worker.",
+  "author": {
+    "name": "Abdarrahman ElSwify",
+    "url": "https://github.com/AbdElswify"
+  },
+  "homepage": "https://github.com/AbdElswify/council",
+  "repository": "https://github.com/AbdElswify/council",
+  "license": "MIT",
+  "keywords": ["multi-agent", "orchestration", "council", "audit", "parallel"]
+}
