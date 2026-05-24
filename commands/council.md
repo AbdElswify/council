@@ -198,3 +198,84 @@ re-dispatch" below) and start the round over from Pass 1. Do NOT call
 Pass 2 — the worker will be re-evaluated from scratch.
 
 **If `APPROVED`**: proceed to Pass 2.
+
+### Pass 2 — Neutral auditor
+
+Dispatch one `Agent` call with `subagent_type: "council-auditor"` and
+prompt:
+
+```
+You are dispatched as a council auditor for Pass 2.
+
+Worker workspace: $RUN_DIR/workers/<slug>/
+Contract: $RUN_DIR/contract.md
+Round number: <current round>
+
+Read everything per your agent instructions. Return your verdict as a
+fenced-JSON block at the end of your message.
+```
+
+When the auditor returns, capture its final message as `$AUDITOR_TEXT`
+and parse:
+
+```bash
+python -c "
+import sys, json, os
+sys.path.insert(0, 'scripts')
+import parse_verdict
+v = parse_verdict.parse(os.environ['AUDITOR_TEXT'])
+print(json.dumps(v))
+" | tee /tmp/v.json
+```
+
+If `parse_verdict` raises a `VerdictError`, re-dispatch the auditor
+ONCE with an explicit "your previous verdict was malformed: <error>"
+prompt. If the second auditor call also fails to produce a valid
+verdict, log a warning to `run.log` and treat Pass 2 as APPROVED with
+a note in the final report.
+
+Append the verdict to history (same `audit_log.append` invocation as
+Pass 1, but with `pass: 2`).
+
+**If `APPROVED`**: worker is done. Proceed to next worker in the layer.
+
+**If `NEEDS_REVISION`**: re-dispatch the worker (see below) and start
+round+1 from Pass 1.
+
+### Worker re-dispatch (for NEEDS_REVISION)
+
+Re-issue an `Agent` call with `subagent_type: "council-worker"` and
+prompt:
+
+```
+You are being re-dispatched after audit feedback.
+
+Specialty: <same as before>
+Scope: <same as before>
+Contract path: $RUN_DIR/contract.md
+Workspace path: $RUN_DIR/workers/<slug>/
+
+Audit findings to address:
+<formatted list of findings from the verdict that triggered re-dispatch>
+
+Address ONLY these findings. Do not rewrite work that was already
+approved. Update <workspace>/manifest.json when done. End your turn
+with: "Wrote manifest: <absolute manifest path>".
+```
+
+### Convergence rule
+
+After round 1, if either Pass 1 or Pass 2 returned `NEEDS_REVISION`,
+you may run round 2 — but BOTH the Mayor (you) and the auditor are
+restricted on round 2 to ONLY checking whether the round-1 findings
+were addressed. No novel findings.
+
+The auditor enforces this in its own prompt (it has been instructed in
+`agents/council-auditor.md` to refuse novel round-2 findings). You
+enforce the same on Pass 1 by re-reading `audit_history.jsonl` before
+forming your verdict and checking that every finding in your round-2
+verdict appears in some round-1 entry.
+
+After round 2, regardless of verdict, **force-accept**: do not run
+round 3. If round 2 still flagged issues, log them as `unresolved` in
+the final report (Phase 6).
