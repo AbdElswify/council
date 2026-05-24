@@ -101,3 +101,56 @@ When the brainstorm ends, do the following:
    - All slugs match `^[a-z0-9][a-z0-9-]{0,63}$`.
 
    If validation fails, fix the contract and reshow to the user.
+
+---
+
+## Phase 3: Dispatch
+
+For each layer in the dependency graph (workers with no remaining
+unsatisfied upstream deps form layer 1; once layer 1 finishes, workers
+whose deps are all in layer 1 form layer 2; etc.):
+
+1. **Create each worker's dir.** For every worker `<slug>` in this layer:
+
+   ```bash
+   python scripts/init_worker.py "$RUN_DIR" "<slug>"
+   ```
+
+2. **Dispatch all workers in this layer in PARALLEL** with one message
+   containing N `Agent` tool calls (one per worker). Each call uses
+   `subagent_type: "council-worker"` and a prompt with this template:
+
+   ```
+   You are dispatched as a council worker.
+
+   Specialty: <specialty from contract roster>
+   Scope: <scope from contract roster>
+   Contract path: $RUN_DIR/contract.md
+   Workspace path: $RUN_DIR/workers/<slug>/
+   Upstream manifests: <comma-separated paths to upstream workers' manifest.json, or "none">
+
+   Read the contract. Do the work. Write artifacts under
+   <workspace>/artifacts/. Write your manifest at <workspace>/manifest.json.
+   End your turn with: "Wrote manifest: <absolute manifest path>".
+   ```
+
+3. **Wait for all parallel Agent calls to return.** When each worker
+   subagent finishes, validate its manifest:
+
+   ```bash
+   python -c "import sys; sys.path.insert(0, 'scripts'); import manifest; manifest.read('$RUN_DIR/workers/<slug>/manifest.json')"
+   ```
+
+   If exit code is nonzero, the manifest is invalid or missing —
+   re-dispatch ONCE with an explicit prompt: "Your previous run did
+   not produce a valid manifest at <path>. Error was: <error>. Try
+   again." If second attempt also fails, mark worker as failed in the
+   run log and skip it (Phase 6 will report this to the user).
+
+4. **Append a `dispatched` event** to `$RUN_DIR/run.log` for each
+   worker (manual `echo "<timestamp> dispatched <slug>" >> $RUN_DIR/run.log`).
+
+5. **Move to Phase 4 (audit) for THIS layer's workers** before
+   dispatching the next layer. (Audit completes before downstream
+   workers see upstream manifests, so downstreams only ever read
+   audit-passed artifacts.)
