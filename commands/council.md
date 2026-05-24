@@ -154,3 +154,47 @@ whose deps are all in layer 1 form layer 2; etc.):
    dispatching the next layer. (Audit completes before downstream
    workers see upstream manifests, so downstreams only ever read
    audit-passed artifacts.)
+
+---
+
+## Phase 4: Audit (per worker, two-pass, max 2 rounds)
+
+For each worker in the layer just dispatched, run this audit loop:
+
+### Pass 1 — Mayor in-session audit
+
+Read `$RUN_DIR/contract.md`, the worker's `manifest.json`, every file
+under its `artifacts/`, and its `audit_history.jsonl`.
+
+Judge the worker against the contract AND the worker's stated scope.
+Look for:
+- Contract conformance (interfaces match, naming matches, etc.)
+- Correctness within the specialty.
+- Whether `seams_touched` in the manifest matches reality.
+- Whether any `contract_concerns` raised by the worker are blockers.
+
+Form your verdict as a Python dict matching:
+
+```python
+{
+  "verdict": "APPROVED" | "NEEDS_REVISION",
+  "round": <current round>,
+  "pass": 1,
+  "findings": [{"severity": "blocker"|"should-fix", "loc": "<>", "issue": "<>"}],
+  "contract_concerns": [{"issue": "<>"}],
+}
+```
+
+Append to history:
+
+```bash
+python -c "import sys; sys.path.insert(0, 'scripts'); import audit_log; audit_log.append('$RUN_DIR/workers/<slug>/audit_history.jsonl', <verdict dict>)"
+```
+
+(Use a heredoc and `json.loads` to keep the dict literal clean.)
+
+**If `NEEDS_REVISION`**: re-dispatch the worker (see "Worker
+re-dispatch" below) and start the round over from Pass 1. Do NOT call
+Pass 2 — the worker will be re-evaluated from scratch.
+
+**If `APPROVED`**: proceed to Pass 2.
