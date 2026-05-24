@@ -1,6 +1,6 @@
 # Council — Design
 
-**Status**: design, not yet implemented
+**Status**: implemented in v0.1.0 (with minor beneficial deltas from this design — see CHANGELOG and post-implementation review notes in `docs/plans/2026-05-23-council-implementation.md`).
 **Date**: 2026-05-23
 **Author**: Abdarrahman ElSwify (with Claude)
 
@@ -196,6 +196,8 @@ You may read the manifests of workers you depend on:
 <list of upstream manifest paths>
 ```
 
+The manifest also includes a `files_written` field — the union of every path the worker created or modified, used by Phase 5 for a cross-worker file-conflict scan.
+
 ### Auditor (Phase 4 Pass 2)
 
 `agents/council-auditor.md` frontmatter:
@@ -244,6 +246,7 @@ Policy: **contracting scope + hard cap of 2 rounds**.
 - Round 3 is never dispatched. If round 2 still fails, the Mayor
   force-accepts and the final report lists unresolved findings with the
   full audit history attached
+- Additional defensive cap: within a single round, no more than 2 Pass-1 NEEDS_REVISION re-dispatches before force-accepting that round. Prevents the Mayor from looping Pass 1 forever without ever reaching Pass 2.
 
 Worst-case cost per worker:
 - 1 initial worker run
@@ -297,7 +300,7 @@ Runs are kept on disk. The Mayor does not consult prior runs by default
 | Failure | Response |
 |---|---|
 | Worker crashes or returns malformed manifest | Mayor re-dispatches once with explicit "your last run failed to produce a valid manifest" prompt. Second failure → mark worker failed, log to final report, continue with remaining workers. |
-| Auditor returns malformed JSON | Mayor re-dispatches auditor once with parse error. Second failure → skip Pass 2 for this round, log warning. |
+| Auditor returns malformed JSON | Mayor re-dispatches auditor once with parse error. Second failure: synthesize an APPROVED Pass-2 verdict (with explanatory `notes` field) and append it to `audit_history.jsonl` so the audit trail is complete. Log a `pass2_synthetic_approval <slug>` event to `run.log` and surface in Phase 6's unresolved section. |
 | Worker raises a *blocker* contract concern | Mayor pauses, revises contract, re-dispatches affected workers from round 1. |
 | Worker raises a *should-fix* contract concern | Logged in final report, contract unchanged for this run. |
 | Claude Code rate limit hit mid-dispatch | Mayor surfaces to user and pauses; user resumes when ready. |
