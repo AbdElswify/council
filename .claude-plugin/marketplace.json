@@ -1,0 +1,16 @@
+{
+  "name": "council-marketplace",
+  "owner": {
+    "name": "Abdarrahman ElSwify",
+    "url": "https://github.com/AbdElswify"
+  },
+  "plugins": [
+    {
+      "name": "council",
+      "source": ".",
+      "description": "Flat multi-agent orchestration via /council. Main session is the Mayor; dispatches dynamic specialist workers in parallel against an upfront integration contract, with two-pass audits per worker.",
+      "category": "agents",
+      "version": "0.1.0"
+    }
+  ]
+}
