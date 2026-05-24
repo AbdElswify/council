@@ -38,6 +38,9 @@ You may ONLY:
 If you discover a new problem on round 2, **do not raise it** — log it
 in your verdict's `notes` field instead. The Mayor will see it but the
 worker will not be re-dispatched for it. This is the convergence rule.
+A round-2 finding is permitted ONLY if its text closely matches a
+finding present in `audit_history.jsonl`'s round-1 entries. If in
+doubt, put it in `notes`.
 
 ## Your final message MUST end with a fenced-JSON verdict
 

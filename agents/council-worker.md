@@ -74,3 +74,7 @@ You will receive an additional input: `audit_findings` — a list of
 issues the Mayor and/or Auditor raised. Address ONLY those findings.
 Do not rewrite work that was already approved. Re-write your manifest
 when done.
+
+Read `audit_history.jsonl` if present — every prior round's findings
+are there. Preserve approved artifacts; modify only what the findings
+target.
