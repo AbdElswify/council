@@ -27,6 +27,32 @@ All shell-outs in this command are written for **bash** syntax (`$VAR`, `tee`, `
 
 ---
 
+## run.log conventions
+
+Every significant Mayor action must append one line to `$RUN_DIR/run.log` in the format `<ISO-8601-timestamp> <event_name> <key=value ...>`. Use `date -Iseconds` (bash) for the timestamp. The Mayor is responsible for emitting EVERY event below. Some are emitted by helper scripts (marked `[script]`); the rest you emit yourself via `echo "..." >> $RUN_DIR/run.log`.
+
+Required events:
+
+| Event | Emitted when | Emitted by |
+|---|---|---|
+| `run_initialized task=<task>` | Phase 2 init_run.py | [script] |
+| `worker_dispatched slug=<slug> layer=<n>` | each Phase 3 dispatch | Mayor |
+| `worker_failed slug=<slug>` | Phase 3 worker double-fails manifest validation | Mayor |
+| `audit_pass1 slug=<slug> round=<n> verdict=<APPROVED|NEEDS_REVISION>` | each Pass 1 | Mayor |
+| `audit_pass2 slug=<slug> round=<n> verdict=<APPROVED|NEEDS_REVISION>` | each Pass 2 | Mayor |
+| `pass2_synthetic_approval slug=<slug>` | double-malformed auditor verdict | Mayor |
+| `worker_redispatched slug=<slug> round=<n> reason=<pass1|pass2|phase5_seam>` | every re-dispatch | Mayor |
+| `force_accepted slug=<slug> round=2` | round-2 NEEDS_REVISION reached force-accept | Mayor |
+| `phase5_entered` | start of Phase 5 | Mayor |
+| `seam_unresolved slug=<slug>` | Phase 5 seam break exceeds round budget | Mayor |
+| `pushback_received` | user pushes back in Phase 6 | Mayor |
+| `worker_reset slug=<slug> reason=pushback` | each affected worker's state reset | Mayor |
+| `run_completed` | user accepts final report | Mayor |
+
+Emit events in the natural place in the flow; the table is the source of truth for what's required.
+
+---
+
 ## Phase 1: Brainstorm
 
 If $ARGUMENTS is empty, ask the user: "What task do you want council to
@@ -67,6 +93,8 @@ When the brainstorm ends, do the following:
    ```bash
    python scripts/init_run.py "<task statement from brainstorm>"
    ```
+
+   > Note: the run directory lands at `<CWD>/.council-runs/<run-id>/`. If you were invoked outside a git repo, this is the user's current working directory — surface this to the user in your "contract looks right?" message so they know where to find the artifacts.
 
    This prints the absolute run directory path. Store it as `$RUN_DIR`.
    The script has already written a `contract.md` stub at
@@ -133,8 +161,15 @@ whose deps are all in layer 1 form layer 2; etc.):
 
    Read the contract. Do the work. Write artifacts under
    <workspace>/artifacts/. Write your manifest at <workspace>/manifest.json.
-   End your turn with: "Wrote manifest: <absolute manifest path>".
    ```
+
+   **Path construction example** — if the current worker is `frontend-impl` with `depends_on: schema-designer, backend-impl`, the upstream manifests string is:
+
+   ```
+   $RUN_DIR/workers/schema-designer/manifest.json, $RUN_DIR/workers/backend-impl/manifest.json
+   ```
+
+   (use the literal `$RUN_DIR` expansion the Mayor captured in Phase 2)
 
 3. **Wait for all parallel Agent calls to return.** When each worker
    subagent finishes, validate its manifest:
@@ -149,8 +184,8 @@ whose deps are all in layer 1 form layer 2; etc.):
    again." If second attempt also fails, mark worker as failed in the
    run log and skip it (Phase 6 will report this to the user).
 
-4. **Append a `dispatched` event** to `$RUN_DIR/run.log` for each
-   worker (manual `echo "<timestamp> dispatched <slug>" >> $RUN_DIR/run.log`).
+4. **Append a `worker_dispatched` event** to `$RUN_DIR/run.log` for each
+   worker (manual `echo "<timestamp> worker_dispatched slug=<slug> layer=<n>" >> $RUN_DIR/run.log`).
 
 5. **Move to Phase 4 (audit) for THIS layer's workers** before
    dispatching the next layer. (Audit completes before downstream
@@ -263,6 +298,15 @@ round+1 from Pass 1.
 Re-issue an `Agent` call with `subagent_type: "council-worker"` and
 prompt:
 
+**Findings format** — convert the verdict's `findings` array into a numbered prose list. Include severity, location, and issue text. Example for a verdict with two findings:
+
+```
+1. [blocker] artifacts/auth.py:42 — JWT secret is hardcoded; must come from env var.
+2. [should-fix] manifest.json — `seams_touched` does not declare the new /login endpoint.
+```
+
+If the verdict also has `contract_concerns`, append them as a separate "Contract concerns to consider:" section after the findings.
+
 ```
 You are being re-dispatched after audit feedback.
 
@@ -270,13 +314,13 @@ Specialty: <same as before>
 Scope: <same as before>
 Contract path: $RUN_DIR/contract.md
 Workspace path: $RUN_DIR/workers/<slug>/
+Upstream manifests: <same as initial dispatch — comma-separated paths to upstream workers' manifest.json, or "none">
 
 Audit findings to address:
 <formatted list of findings from the verdict that triggered re-dispatch>
 
 Address ONLY these findings. Do not rewrite work that was already
-approved. Update <workspace>/manifest.json when done. End your turn
-with: "Wrote manifest: <absolute manifest path>".
+approved. Update <workspace>/manifest.json when done.
 ```
 
 ### Convergence rule
@@ -320,8 +364,10 @@ worker's `manifest.json` and the contract together. Cross-check:
    criteria" bullets one-by-one. For each, decide
    PASS / FAIL / PARTIAL with one line of justification.
 
+3. **File-write conflict scan.** Build the union of every worker's `files_written` array (from their manifest.json). If any file path appears in two or more workers' lists, that is a contract violation — neither worker should have written it without the contract declaring shared ownership. Treat as a broken seam: re-dispatch the workers involved with a precise description of the conflict.
+
 If you find any broken seam, **re-dispatch the responsible worker(s)**
-with a precise description of the seam break. This re-dispatch counts toward that worker's round budget (so if the worker is already at round 2, you cannot re-dispatch further — append a `seam_unresolved <slug>` line to `$RUN_DIR/run.log`, surface in Phase 6, and continue Phase 5 with the remaining workers).
+with a precise description of the seam break. This re-dispatch counts toward that worker's round budget (so if re-dispatching would push the worker into round 3 — i.e. the worker has already completed round 2 with both passes settled — you cannot re-dispatch further; append a `seam_unresolved <slug>` line to `$RUN_DIR/run.log`, surface in Phase 6, and continue Phase 5 with the remaining workers).
 
 If a re-dispatch occurs, re-run Phase 4 (audit) for that worker, then
 re-run Phase 5. Cap Phase 5 iterations at 2 to prevent infinite loops.
@@ -360,11 +406,13 @@ addressed, workers that failed twice, or seams that could not be fixed>
 Then: "Anything to push back on? Tell me which worker(s) need a
 re-run, and I'll restart them at round 1."
 
-If the user pushes back, identify the affected workers, reset their
-`audit_history.jsonl` to empty (but back up the old one to
-`audit_history.previous.jsonl` for the user's reference), and re-run
-Phases 3–5 for ONLY those workers. Other workers' artifacts and
-manifests are untouched.
+If the user pushes back, for each affected worker:
+1. Back up `audit_history.jsonl` to `audit_history.previous.jsonl`, then truncate `audit_history.jsonl` to empty.
+2. Back up the entire `artifacts/` directory to `artifacts.previous/` (move, don't copy — the new run produces fresh output), then re-create an empty `artifacts/`.
+3. Back up `manifest.json` to `manifest.previous.json`, then delete `manifest.json` (the re-dispatched worker writes a new one).
+4. Leave `contract.md` and all other workers' state untouched.
+
+Then re-run Phases 3–5 for ONLY the affected workers, starting fresh at round 1. Other workers' artifacts, manifests, and audit histories are not modified.
 
 If the user accepts, write a final `run_completed` line to
 `$RUN_DIR/run.log` and end your turn.
