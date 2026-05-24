@@ -43,6 +43,7 @@ back via a manifest.
      "specialty": "<your specialty>",
      "summary": "<one paragraph: what you did, the key decisions, anything the Mayor needs to know>",
      "artifacts": ["artifacts/<file>", "..."],
+     "files_written": ["artifacts/<file>", "../somewhere/touched.py", "..."],
      "contract_concerns": [
        {"severity": "blocker"|"should-fix", "issue": "<text>"}
      ],
@@ -52,6 +53,10 @@ back via a manifest.
    }
    ```
 
+   `files_written` is the union of every file you created OR modified
+   (including files OUTSIDE `artifacts/` that the Mayor explicitly
+   authorized via the contract). The Mayor uses this for a cross-worker
+   conflict scan in Phase 5.
    `contract_concerns` is an empty list if you have none.
    `seams_touched` is an empty list if nothing you produced needs to
    align with another worker's output.
@@ -60,13 +65,6 @@ back via a manifest.
    not in your tool list. If your scope requires recruiting help, that
    is a sign the Mayor mis-specialized — flag it in `contract_concerns`
    and continue with what you can do alone.
-
-5. **End your turn with one line summarizing where you wrote the
-   manifest.** Example:
-
-   `Wrote manifest: <absolute path to manifest.json>`
-
-   This is how the Mayor finds your output programmatically.
 
 ## If you are re-dispatched after an audit
 
