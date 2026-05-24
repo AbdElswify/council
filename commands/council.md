@@ -23,6 +23,8 @@ need to consult it. The deterministic plumbing is in `scripts/`:
 
 DO NOT reimplement any of those — shell out to them.
 
+All shell-outs in this command are written for **bash** syntax (`$VAR`, `tee`, `>>`, heredocs). Always invoke them via the `Bash` tool, never the `PowerShell` tool, even when the host OS is Windows. The Bash tool is available on every platform Claude Code runs on.
+
 ---
 
 ## Phase 1: Brainstorm
@@ -161,6 +163,14 @@ whose deps are all in layer 1 form layer 2; etc.):
 
 For each worker in the layer just dispatched, run this audit loop:
 
+### Round counter semantics
+
+- `round` starts at **1** when the worker is first audited.
+- It increments to **2** only when **Pass 2** returns `NEEDS_REVISION` and the worker is re-dispatched.
+- A **Pass 1** `NEEDS_REVISION` re-dispatches the worker but does NOT increment the round; it restarts the round from Pass 1.
+- Cap on Pass-1-only failures within a single round: **2**. On the 3rd Pass-1 `NEEDS_REVISION` in the same round, force-accept the worker with an unresolved note (Phase 6 surfaces this).
+- Hard ceiling stands: round 3 is never dispatched. After round 2 (regardless of verdict), force-accept and log unresolved.
+
 ### Pass 1 — Mayor in-session audit
 
 Read `$RUN_DIR/contract.md`, the worker's `manifest.json`, every file
@@ -182,6 +192,7 @@ Form your verdict as a Python dict matching:
   "pass": 1,
   "findings": [{"severity": "blocker"|"should-fix", "loc": "<>", "issue": "<>"}],
   "contract_concerns": [{"issue": "<>"}],
+  "notes": "<optional; e.g. a novel observation withheld on round 2>",
 }
 ```
 
@@ -231,8 +242,13 @@ print(json.dumps(v))
 If `parse_verdict` raises a `VerdictError`, re-dispatch the auditor
 ONCE with an explicit "your previous verdict was malformed: <error>"
 prompt. If the second auditor call also fails to produce a valid
-verdict, log a warning to `run.log` and treat Pass 2 as APPROVED with
-a note in the final report.
+verdict, synthesize a verdict entry and append it to `audit_history.jsonl` via `audit_log.append` so the artifact trail records what happened:
+
+```python
+{"verdict": "APPROVED", "round": <current>, "pass": 2, "findings": [], "contract_concerns": [], "notes": "auditor returned malformed JSON twice; pass treated as approved by Mayor"}
+```
+
+Then log a `pass2_synthetic_approval <slug>` line to `$RUN_DIR/run.log` and surface in Phase 6's unresolved section.
 
 Append the verdict to history (same `audit_log.append` invocation as
 Pass 1, but with `pass: 2`).
@@ -276,9 +292,15 @@ enforce the same on Pass 1 by re-reading `audit_history.jsonl` before
 forming your verdict and checking that every finding in your round-2
 verdict appears in some round-1 entry.
 
+A round-2 Pass-1 finding is permitted ONLY if its text closely matches a finding present in `audit_history.jsonl`'s round-1 entries. If in doubt, put it in `notes` and approve. This mirrors the auditor's escape valve and prevents you from rationalizing novel issues as "really the same as round-1 finding X."
+
 After round 2, regardless of verdict, **force-accept**: do not run
 round 3. If round 2 still flagged issues, log them as `unresolved` in
 the final report (Phase 6).
+
+### Per-layer loop discipline
+
+After each worker resolves to one of `APPROVED`, `UNRESOLVED` (force-accepted at round 2), or `FAILED` (worker double-failed before any audit), return to the outer Phase-3 layer loop and move to the next worker. Do NOT proceed to the next dependency layer until every worker in the current layer has resolved.
 
 ---
 
@@ -299,9 +321,7 @@ worker's `manifest.json` and the contract together. Cross-check:
    PASS / FAIL / PARTIAL with one line of justification.
 
 If you find any broken seam, **re-dispatch the responsible worker(s)**
-with a precise description of the seam break. This re-dispatch counts
-toward that worker's round budget (so if the worker is already at
-round 2, you cannot re-dispatch further — log as unresolved).
+with a precise description of the seam break. This re-dispatch counts toward that worker's round budget (so if the worker is already at round 2, you cannot re-dispatch further — append a `seam_unresolved <slug>` line to `$RUN_DIR/run.log`, surface in Phase 6, and continue Phase 5 with the remaining workers).
 
 If a re-dispatch occurs, re-run Phase 4 (audit) for that worker, then
 re-run Phase 5. Cap Phase 5 iterations at 2 to prevent infinite loops.
