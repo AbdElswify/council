@@ -53,3 +53,51 @@ Stop the brainstorm when the user says "ready to dispatch" (or any clear
 green-light: "go", "proceed", "looks good, dispatch"). At that point,
 write a brief one-paragraph task statement back to the user for
 confirmation, then move to Phase 2.
+
+---
+
+## Phase 2: Contract
+
+When the brainstorm ends, do the following:
+
+1. **Create the run workspace.** Shell out:
+
+   ```bash
+   python scripts/init_run.py "<task statement from brainstorm>"
+   ```
+
+   This prints the absolute run directory path. Store it as `$RUN_DIR`.
+   The script has already written a `contract.md` stub at
+   `$RUN_DIR/contract.md`.
+
+2. **Fill in the contract.** Edit `$RUN_DIR/contract.md` to populate:
+   - **Task statement** — already filled, but rewrite if you want it
+     tighter.
+   - **Shared interfaces** — every concrete artifact two or more workers
+     will agree on: file paths, function signatures, data shapes,
+     schemas, API contracts. Be specific. Example:
+     `POST /users — request {name: string, email: string}, response {id: uuid}`.
+   - **Naming conventions** — anything where consistency matters and
+     could drift across workers.
+   - **Worker roster** — fill the table with one row per worker:
+     `slug` (kebab-case, matches `[a-z0-9][a-z0-9-]{0,63}`),
+     `specialty` (short label, e.g. "API schema designer"),
+     `scope` (one sentence describing what they produce),
+     `depends_on` (comma-separated slugs of upstream workers, or `—`).
+   - **Acceptance criteria** — 3–6 bullets describing what "done" looks
+     like across the whole task. The audits will check against these.
+
+3. **Show the user the populated contract** and ask: "Contract looks
+   right? Reply 'dispatch' to launch workers, or call out anything to
+   change."
+
+4. **Loop on contract edits** until the user gives the green light.
+   Each edit is a normal text/Edit operation on `$RUN_DIR/contract.md`.
+
+5. **Validate worker slugs are unique and dep-safe**:
+   - Every `depends_on` slug must exist elsewhere in the roster.
+   - No cycles (do a topological-sort sanity check by hand —
+     for ≤7 workers this is trivial).
+   - All slugs match `^[a-z0-9][a-z0-9-]{0,63}$`.
+
+   If validation fails, fix the contract and reshow to the user.
