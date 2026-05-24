@@ -305,3 +305,46 @@ round 2, you cannot re-dispatch further — log as unresolved).
 
 If a re-dispatch occurs, re-run Phase 4 (audit) for that worker, then
 re-run Phase 5. Cap Phase 5 iterations at 2 to prevent infinite loops.
+
+---
+
+## Phase 6: Final report
+
+Present to the user:
+
+```
+# Council Run <run-id>
+
+**Task:** <task statement>
+
+**Workers:** <count>
+
+## Per-worker results
+- **<slug>** (<specialty>): <APPROVED in round N | UNRESOLVED in round 2 | FAILED>
+  - Artifacts: <list of paths under artifacts/>
+  - Audit history: <run-dir>/workers/<slug>/audit_history.jsonl
+
+## Acceptance criteria
+- ✓ <criterion> — PASS
+- ✗ <criterion> — FAIL: <reason>
+- ~ <criterion> — PARTIAL: <reason>
+
+## Unresolved
+<bullets for anything force-accepted at round 2, contract concerns not
+addressed, workers that failed twice, or seams that could not be fixed>
+
+## Workspace
+<run-dir> (kept on disk for inspection)
+```
+
+Then: "Anything to push back on? Tell me which worker(s) need a
+re-run, and I'll restart them at round 1."
+
+If the user pushes back, identify the affected workers, reset their
+`audit_history.jsonl` to empty (but back up the old one to
+`audit_history.previous.jsonl` for the user's reference), and re-run
+Phases 3–5 for ONLY those workers. Other workers' artifacts and
+manifests are untouched.
+
+If the user accepts, write a final `run_completed` line to
+`$RUN_DIR/run.log` and end your turn.
