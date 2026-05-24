@@ -279,3 +279,29 @@ verdict appears in some round-1 entry.
 After round 2, regardless of verdict, **force-accept**: do not run
 round 3. If round 2 still flagged issues, log them as `unresolved` in
 the final report (Phase 6).
+
+---
+
+## Phase 5: Integration check
+
+After ALL workers have passed audit (or hit force-accept), read every
+worker's `manifest.json` and the contract together. Cross-check:
+
+1. **Seam alignment.** For each entry in any worker's `seams_touched`,
+   verify that the corresponding artifact in the dependent worker(s)
+   actually conforms. Example: if `schema-designer` declares
+   `POST /users response shape = {id, name, email}` and `backend-impl`
+   produced an endpoint returning `{user_id, name}`, that is a broken
+   seam.
+
+2. **Contract acceptance criteria.** Walk the contract's "Acceptance
+   criteria" bullets one-by-one. For each, decide
+   PASS / FAIL / PARTIAL with one line of justification.
+
+If you find any broken seam, **re-dispatch the responsible worker(s)**
+with a precise description of the seam break. This re-dispatch counts
+toward that worker's round budget (so if the worker is already at
+round 2, you cannot re-dispatch further — log as unresolved).
+
+If a re-dispatch occurs, re-run Phase 4 (audit) for that worker, then
+re-run Phase 5. Cap Phase 5 iterations at 2 to prevent infinite loops.
