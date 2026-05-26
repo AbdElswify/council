@@ -1,8 +1,20 @@
 """Initialize a per-run workspace under .council-runs/<run-id>/."""
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import run_id
+
+
+# How many fresh run_ids to try before giving up. A collision requires the
+# same second AND the same 16-bit random suffix, so it is astronomically
+# unlikely; a tiny bound is plenty and prevents an unbounded loop if the
+# parent directory is somehow unwritable in a way that masquerades as a
+# collision.
+MAX_RUN_ID_ATTEMPTS = 8
+
+
+class RunInitError(RuntimeError):
+    pass
 
 
 CONTRACT_TEMPLATE = """# Council Run {run_id}: Contract
@@ -26,13 +38,29 @@ CONTRACT_TEMPLATE = """# Council Run {run_id}: Contract
 
 
 def init_run(root: Path, task: str) -> Path:
-    rid = run_id.new_run_id()
-    run_dir = (Path(root) / rid).resolve()
-    (run_dir / "workers").mkdir(parents=True, exist_ok=False)
+    # Retry on the (astronomically unlikely) run_id collision. mkdir with
+    # exist_ok=False is the atomic test-and-claim: if the dir already exists
+    # we get FileExistsError, generate a fresh id, and try again. Bounded so a
+    # genuinely broken filesystem surfaces as RunInitError rather than hanging.
+    for _ in range(MAX_RUN_ID_ATTEMPTS):
+        rid = run_id.new_run_id()
+        run_dir = (Path(root) / rid).resolve()
+        try:
+            (run_dir / "workers").mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            continue
+        break
+    else:
+        raise RunInitError(
+            f"could not allocate a unique run_id under {root!r} after "
+            f"{MAX_RUN_ID_ATTEMPTS} attempts"
+        )
+
+    # Timezone-aware UTC; datetime.utcnow() is deprecated in Python 3.12+.
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     (run_dir / "contract.md").write_text(
         CONTRACT_TEMPLATE.format(run_id=rid, task=task), encoding="utf-8"
     )
-    ts = datetime.utcnow().isoformat(timespec="seconds")
     (run_dir / "run.log").write_text(
         f"{ts} run_initialized task={task!r}\n", encoding="utf-8"
     )

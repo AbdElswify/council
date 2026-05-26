@@ -95,3 +95,42 @@ def test_notes_absent_is_fine():
     text = '```json\n{"verdict": "APPROVED", "round": 1, "pass": 2, "findings": [], "contract_concerns": []}\n```'
     v = parse_verdict.parse(text)
     assert "notes" not in v
+
+
+# --- Fence-regex robustness: closing fence without a preceding newline ---
+
+def test_no_trailing_newline_before_closing_fence():
+    # JSON ends right against the closing fence (no blank line in between).
+    text = '```json\n{"verdict": "APPROVED", "round": 1, "pass": 2, "findings": [], "contract_concerns": []}```'
+    assert parse_verdict.parse(text)["verdict"] == "APPROVED"
+
+def test_multiline_body_without_trailing_newline():
+    text = (
+        "```json\n"
+        "{\n"
+        '  "verdict": "NEEDS_REVISION",\n'
+        '  "round": 2,\n'
+        '  "pass": 1,\n'
+        '  "findings": [],\n'
+        '  "contract_concerns": []\n'
+        "}```"
+    )
+    v = parse_verdict.parse(text)
+    assert v["verdict"] == "NEEDS_REVISION"
+    assert v["round"] == 2
+
+def test_crlf_line_endings_parse():
+    text = (
+        "```json\r\n"
+        '{"verdict": "APPROVED", "round": 1, "pass": 2, "findings": [], "contract_concerns": []}'
+        "\r\n```"
+    )
+    assert parse_verdict.parse(text)["verdict"] == "APPROVED"
+
+def test_last_block_wins_when_final_block_has_no_trailing_newline():
+    text = (
+        '```json\n{"verdict": "NEEDS_REVISION", "round": 1, "pass": 2, "findings": [], "contract_concerns": []}\n```\n'
+        "thinking out loud\n"
+        '```json\n{"verdict": "APPROVED", "round": 1, "pass": 2, "findings": [], "contract_concerns": []}```'
+    )
+    assert parse_verdict.parse(text)["verdict"] == "APPROVED"

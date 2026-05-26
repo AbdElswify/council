@@ -92,7 +92,9 @@ your main session) drives all of them.
    handing each one its specialty, scope, the contract path, its workspace
    path, and the manifests of any upstream workers it depends on. Workers
    write artifacts under their own `artifacts/` directory and report back
-   via a `manifest.json`.
+   via a `manifest.json` that includes a `files_written` list (every path
+   the worker created or modified) so the Mayor can run a cross-worker
+   file-conflict scan in Phase 5.
 
 4. **Audit (per worker, two-pass, max 2 rounds).** Pass 1 is the Mayor
    reviewing the worker in-session against the contract. APPROVED → Pass 2
@@ -104,7 +106,8 @@ your main session) drives all of them.
    logs the unresolved items.
 
 5. **Integration check.** Once every worker has cleared audit, the Mayor
-   reads all manifests together and verifies the seams declared in the
+   reads all manifests together, scans each worker's `files_written` for
+   cross-worker write conflicts, and verifies the seams declared in the
    contract actually hold across workers' outputs. A broken seam
    re-dispatches the responsible worker(s) and consumes their round budget.
 
@@ -164,8 +167,8 @@ tool list, so the platform constraint is enforced at the plugin layer.
 | | Tribunal | Council |
 |---|---|---|
 | Orchestrator | Judge (main session) → Mayors (subagents) | Mayor (main session) |
-| Hierarchy | Up to 4 levels (Judge → Mayor → Department → …) | Flat: 1 level (Mayor → Workers) |
-| Integration | Sequential via `depends_on` + Mayor synthesis | Upfront contract + parallel + optional `depends_on` |
+| Hierarchy | Recursive: Judge → Mayor → Department → … (depth > 1) | Flat: 1 level (Mayor → Workers) |
+| Integration | Recursive synthesis: each Mayor dispatches its children in dependency-ordered parallel batches, then synthesizes their manifests up the tree | Upfront contract + parallel dispatch + optional `depends_on`; the Mayor integration-checks seams rather than synthesizing |
 | `recruit_plan` indirection | Yes (every Mayor/Department may recruit) | No (Mayor dispatches workers directly) |
 | Best fit | Complex tasks with natural decomposition trees | Tasks that fan out cleanly into 3–7 parallel pieces |
 

@@ -46,3 +46,16 @@ def test_read_empty_returns_empty_list(tmp_path):
     history = tmp_path / "audit_history.jsonl"
     history.write_text("", encoding="utf-8")
     assert audit_log.read(history) == []
+
+def test_timestamp_is_utc_aware(tmp_path):
+    # datetime.now(timezone.utc).isoformat() yields a +00:00 offset suffix.
+    history = tmp_path / "audit_history.jsonl"
+    audit_log.append(history, VERDICT_1)
+    line = json.loads(history.read_text().strip())
+    assert line["timestamp"].endswith("+00:00")
+
+def test_append_does_not_mutate_input(tmp_path):
+    # append() adds 'timestamp' to a copy, not the caller's dict.
+    history = tmp_path / "audit_history.jsonl"
+    audit_log.append(history, VERDICT_2)
+    assert "timestamp" not in VERDICT_2

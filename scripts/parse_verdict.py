@@ -5,7 +5,12 @@ import re
 
 VALID_VERDICTS = {"APPROVED", "NEEDS_REVISION"}
 VALID_PASSES = {1, 2}
-FENCE_RE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+# Opening fence: ```json then optional trailing spaces/tabs and a line break
+# (LF or CRLF). Body is captured non-greedily. Closing fence: the newline
+# before ``` is OPTIONAL, so a block whose JSON ends right against the closing
+# fence (no trailing blank line) still parses. Trailing whitespace before the
+# closing ``` is tolerated. JSON itself ignores surrounding whitespace.
+FENCE_RE = re.compile(r"```json[ \t]*\r?\n(.*?)\r?\n?[ \t]*```", re.DOTALL)
 
 
 class VerdictError(ValueError):

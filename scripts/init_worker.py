@@ -12,8 +12,14 @@ def init_worker(run_dir: Path, slug: str) -> Path:
             f"Unsafe worker slug {slug!r}: must match {SAFE_SLUG.pattern}"
         )
     worker_dir = Path(run_dir) / "workers" / slug
-    (worker_dir / "artifacts").mkdir(parents=True, exist_ok=False)
-    (worker_dir / "audit_history.jsonl").write_text("", encoding="utf-8")
+    # Idempotent: a worker is re-initialized on re-dispatch after an audit, so
+    # calling this twice for the same slug must NOT clobber accumulated state.
+    # exist_ok=True lets the dirs already be present; we create audit_history
+    # only if it is missing so an existing append-only history is preserved.
+    (worker_dir / "artifacts").mkdir(parents=True, exist_ok=True)
+    history = worker_dir / "audit_history.jsonl"
+    if not history.exists():
+        history.write_text("", encoding="utf-8")
     return worker_dir
 
 

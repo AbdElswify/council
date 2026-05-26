@@ -1,18 +1,88 @@
 # Changelog
 
-## v0.1.0 — 2026-05-23 (TBD)
+## v0.1.1 — 2026-05-25
+
+Hardening release. Produced by a council self-improvement run (`/council`
+analyzing its own plugin), with four file-owned workers under two-pass audit.
+
+### Fixed
+- **Dispatch was broken when the plugin is installed.** `commands/council.md`
+  told the Mayor to dispatch `subagent_type: "council-worker"` /
+  `"council-auditor"`, but installed plugins namespace agent types as
+  `council:council-worker` / `council:council-auditor`; the bare names fail
+  with "Agent type not found". All dispatch sites now use the namespaced form
+  (bare name documented as the dev-checkout fallback).
+- **`init_worker` wiped audit history on re-dispatch.** It used
+  `mkdir(exist_ok=False)` and unconditionally truncated `audit_history.jsonl`,
+  so re-initializing a worker after an audit destroyed the append-only history.
+  Now idempotent: dirs may pre-exist and the history file is created only when
+  missing.
+- `datetime.utcnow()` (deprecated in Python 3.12+) replaced with
+  timezone-aware `datetime.now(timezone.utc)` in `run_id`, `init_run`,
+  `audit_log`; timestamps now carry a `+00:00` offset.
+- `run_id` collisions are now handled with a bounded retry + `RunInitError`
+  instead of an unhandled `FileExistsError`.
+- `parse_verdict` fence regex is CRLF-tolerant and accepts a verdict block
+  with no blank line before the closing fence, while preserving last-block-wins.
+
+### Changed
+- Agent prompts hardened: verdict values documented as case-sensitive; the
+  round-2 novel-finding rule rewritten as an enforceable allow-list procedure;
+  worker re-dispatch and the frozen manifest schema spelled out field-by-field.
+- Orchestration prompt: inline `run.log` emit-reminders at every emission
+  point; `files_written` named in the dispatch template; Phase 5 seam
+  re-dispatch routed through the Phase 4 re-dispatch path.
+- Docs: corrected the tribunal comparison rows (tribunal dispatches in
+  parallel where deps allow, then synthesizes — not "Sequential"); CHANGELOG
+  and design-doc reconciled with shipped state; removed a stale `slugify`
+  shipped-script over-claim.
+- Tests: 43 → 55 (added coverage for timezone offset, run_id collision,
+  `init_worker` idempotency, and the CRLF/no-trailing-newline verdict fence).
+
+### Known follow-ups (deferred)
+- `parse_verdict` does not yet enforce `findings`-empty-iff-`APPROVED` or
+  `findings[]` element shape (asserted in the auditor prompt only).
+- The `force_accepted ... round=2` run.log arg is imperfect for a
+  3rd-Pass-1-in-round-1 force-accept; needs a cross-file contract revision.
+
+## v0.1.0 — 2026-05-24
 
 Initial release.
 
 ### Added
 - `/council` slash command (brainstorm → contract → parallel dispatch →
   two-pass audit → integration check → final report).
-- `council-worker` subagent (generic, dynamic specialty).
-- `council-auditor` subagent (read-only, fenced-JSON verdict).
+- `council-worker` subagent (generic, dynamic specialty; `Read, Write,
+  Edit, Glob, Grep, Bash` only — no `Agent`/`Task`, enforcing the flat
+  hierarchy at the plugin layer).
+- `council-auditor` subagent (read-only `Read, Glob, Grep`; fenced-JSON
+  verdict with a frozen `verdict`/`round`/`pass`/`findings`/
+  `contract_concerns` schema, optional `notes`).
 - Python helper scripts: `init_run`, `init_worker`, `manifest`,
-  `audit_log`, `parse_verdict`, `slugify`, `run_id`.
-- 2-round convergence cap with contracting scope on round 2.
+  `audit_log`, `parse_verdict`, `run_id`, all with pytest
+  coverage.
+- Worker manifest schema with a `files_written` field — the union of
+  every path a worker created or modified — consumed by the Phase 5
+  cross-worker file-conflict scan.
+- Canonical 13-event `run.log` vocabulary, defined in `commands/council.md`
+  (`run_initialized`, `worker_dispatched`, `worker_failed`, `audit_pass1`,
+  `audit_pass2`, `pass2_synthetic_approval`, `worker_redispatched`,
+  `force_accepted`, `phase5_entered`, `seam_unresolved`,
+  `pushback_received`, `worker_reset`, `run_completed`).
+- 2-round convergence cap with contracting scope on round 2, plus a
+  defensive in-round cap on Pass-1 re-dispatches.
 - Workspace layout under `.council-runs/<run-id>/`.
+
+### Fixed (post-design hardening before release)
+- `manifest.py` and `parse_verdict.py` now validate nested element
+  shapes (per-finding severity, list-element types, verdict `round`/`pass`
+  bounds) rather than only top-level field presence and type.
+- Eight orchestration fixes in `commands/council.md` (re-dispatch
+  protocol, Phase 6 pushback reset, the run.log event table, and related
+  consistency gaps).
+- `.claude-plugin/marketplace.json` uses the object `source` form
+  (`{"source": "url", "url": "https://github.com/AbdElswify/council.git"}`)
+  instead of a bare `"."` string, which Claude Code rejects on install.
 
 ### Known limitations
 - Flat hierarchy only (no recursion past depth 1).

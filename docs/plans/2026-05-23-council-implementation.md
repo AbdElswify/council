@@ -1963,7 +1963,7 @@ Initial release.
 - `council-worker` subagent (generic, dynamic specialty).
 - `council-auditor` subagent (read-only, fenced-JSON verdict).
 - Python helper scripts: `init_run`, `init_worker`, `manifest`,
-  `audit_log`, `parse_verdict`, `slugify`, `run_id`.
+  `audit_log`, `parse_verdict`, `run_id`.
 - 2-round convergence cap with contracting scope on round 2.
 - Workspace layout under `.council-runs/<run-id>/`.
 

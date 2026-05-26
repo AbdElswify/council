@@ -20,8 +20,8 @@ overlapping problems with different shapes:
 | | Tribunal | Council |
 |---|---|---|
 | Orchestrator | Judge (main session) → Mayors (subagents) | Mayor (main session) |
-| Hierarchy | Up to 3+ levels (Judge → Mayor → Department → …) | Flat: 1 level (Mayor → Workers) |
-| Integration | Sequential via `depends_on` | Upfront contract + parallel + optional dep |
+| Hierarchy | Recursive: Judge → Mayor → Department → … (depth > 1) | Flat: 1 level (Mayor → Workers) |
+| Integration | Recursive synthesis: each Mayor dispatches its children in dependency-ordered parallel batches, then synthesizes their manifests up the tree | Upfront contract + parallel dispatch + optional `depends_on`; the Mayor integration-checks seams rather than synthesizing |
 | `recruit_plan` indirection | Yes (every Mayor/Department may recruit) | No (Mayor is in-session, dispatches directly) |
 | Best fit | Complex tasks with natural decomposition trees | Tasks that fan out cleanly into 3–7 parallel pieces |
 
@@ -218,6 +218,7 @@ Verdict format (fenced JSON in the auditor's return message):
 {
   "verdict": "NEEDS_REVISION",
   "round": 1,
+  "pass": 2,
   "findings": [
     {"severity": "blocker",    "loc": "artifacts/schema.yaml:12", "issue": "..."},
     {"severity": "should-fix", "loc": "manifest.json",            "issue": "..."}
@@ -227,6 +228,10 @@ Verdict format (fenced JSON in the auditor's return message):
   ]
 }
 ```
+
+`parse_verdict.py` requires `verdict`, `round`, `pass`, `findings`, and
+`contract_concerns` and validates their types; `notes` is optional. See
+`commands/council.md` for the canonical run.log event vocabulary.
 
 Round 2 verdicts MUST only reference findings already present in
 `audit_history.jsonl`. The auditor prompt explicitly forbids novel findings

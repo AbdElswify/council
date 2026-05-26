@@ -25,6 +25,15 @@ DO NOT reimplement any of those — shell out to them.
 
 All shell-outs in this command are written for **bash** syntax (`$VAR`, `tee`, `>>`, heredocs). Always invoke them via the `Bash` tool, never the `PowerShell` tool, even when the host OS is Windows. The Bash tool is available on every platform Claude Code runs on.
 
+## Agent-type names (read before any dispatch)
+
+Every `Agent` tool call in this command dispatches one of two subagent types. When the council plugin is **installed**, agent types are namespaced under the plugin name, so you MUST dispatch with the namespaced form:
+
+- worker: `subagent_type: "council:council-worker"`
+- auditor: `subagent_type: "council:council-auditor"`
+
+The bare names `council-worker` / `council-auditor` are a **fallback only** for running from a non-installed/dev checkout where the agents resolve unnamespaced. The dispatch templates below all show the namespaced form — use it first. If a dispatch fails with "Agent type not found", you used the wrong form for this environment: retry the SAME dispatch with the bare name before treating it as a real failure, and use that same form for all subsequent dispatches in the run.
+
 ---
 
 ## run.log conventions
@@ -49,7 +58,7 @@ Required events:
 | `worker_reset slug=<slug> reason=pushback` | each affected worker's state reset | Mayor |
 | `run_completed` | user accepts final report | Mayor |
 
-Emit events in the natural place in the flow; the table is the source of truth for what's required.
+This table is the source of truth for what's required. Each phase below also carries an inline **run.log — emit ...** reminder at the exact point its events fire, so following the prose step-by-step covers every row; if the prose and this table ever disagree, the table wins. Always format the timestamp with `$(date -Iseconds)` so the line is `<ISO-8601-timestamp> <event_name> <key=value ...>`.
 
 ---
 
@@ -148,7 +157,10 @@ whose deps are all in layer 1 form layer 2; etc.):
 
 2. **Dispatch all workers in this layer in PARALLEL** with one message
    containing N `Agent` tool calls (one per worker). Each call uses
-   `subagent_type: "council-worker"` and a prompt with this template:
+   `subagent_type: "council:council-worker"` (the namespaced worker
+   agent type — see "Agent-type names" above; fall back to the bare
+   `council-worker` only on a dev checkout) and a prompt with this
+   template:
 
    ```
    You are dispatched as a council worker.
@@ -160,7 +172,9 @@ whose deps are all in layer 1 form layer 2; etc.):
    Upstream manifests: <comma-separated paths to upstream workers' manifest.json, or "none">
 
    Read the contract. Do the work. Write artifacts under
-   <workspace>/artifacts/. Write your manifest at <workspace>/manifest.json.
+   <workspace>/artifacts/. Write your manifest at <workspace>/manifest.json
+   conforming to the manifest schema in the contract — including the
+   `files_written` field listing every file you created or modified.
    ```
 
    **Path construction example** — if the current worker is `frontend-impl` with `depends_on: schema-designer, backend-impl`, the upstream manifests string is:
@@ -170,6 +184,11 @@ whose deps are all in layer 1 form layer 2; etc.):
    ```
 
    (use the literal `$RUN_DIR` expansion the Mayor captured in Phase 2)
+
+   > **run.log — emit now (at dispatch time):** for each worker in this
+   > layer, append one `worker_dispatched` line:
+   > `echo "$(date -Iseconds) worker_dispatched slug=<slug> layer=<n>" >> $RUN_DIR/run.log`.
+   > Do this when you issue the Agent calls, not after they return.
 
 3. **Wait for all parallel Agent calls to return.** When each worker
    subagent finishes, validate its manifest:
@@ -181,13 +200,14 @@ whose deps are all in layer 1 form layer 2; etc.):
    If exit code is nonzero, the manifest is invalid or missing —
    re-dispatch ONCE with an explicit prompt: "Your previous run did
    not produce a valid manifest at <path>. Error was: <error>. Try
-   again." If second attempt also fails, mark worker as failed in the
-   run log and skip it (Phase 6 will report this to the user).
+   again." If second attempt also fails, mark the worker as failed and
+   skip it (Phase 6 will report this to the user).
 
-4. **Append a `worker_dispatched` event** to `$RUN_DIR/run.log` for each
-   worker (manual `echo "<timestamp> worker_dispatched slug=<slug> layer=<n>" >> $RUN_DIR/run.log`).
+   > **run.log — emit on double-failure:** when a worker fails manifest
+   > validation a second time, append:
+   > `echo "$(date -Iseconds) worker_failed slug=<slug>" >> $RUN_DIR/run.log`.
 
-5. **Move to Phase 4 (audit) for THIS layer's workers** before
+4. **Move to Phase 4 (audit) for THIS layer's workers** before
    dispatching the next layer. (Audit completes before downstream
    workers see upstream manifests, so downstreams only ever read
    audit-passed artifacts.)
@@ -239,6 +259,10 @@ python -c "import sys; sys.path.insert(0, 'scripts'); import audit_log; audit_lo
 
 (Use a heredoc and `json.loads` to keep the dict literal clean.)
 
+> **run.log — emit after every Pass 1:** append:
+> `echo "$(date -Iseconds) audit_pass1 slug=<slug> round=<n> verdict=<APPROVED|NEEDS_REVISION>" >> $RUN_DIR/run.log`.
+> Emit this regardless of verdict (both APPROVED and NEEDS_REVISION).
+
 **If `NEEDS_REVISION`**: re-dispatch the worker (see "Worker
 re-dispatch" below) and start the round over from Pass 1. Do NOT call
 Pass 2 — the worker will be re-evaluated from scratch.
@@ -247,8 +271,9 @@ Pass 2 — the worker will be re-evaluated from scratch.
 
 ### Pass 2 — Neutral auditor
 
-Dispatch one `Agent` call with `subagent_type: "council-auditor"` and
-prompt:
+Dispatch one `Agent` call with `subagent_type: "council:council-auditor"`
+(the namespaced auditor agent type — see "Agent-type names" above; fall
+back to the bare `council-auditor` only on a dev checkout) and prompt:
 
 ```
 You are dispatched as a council auditor for Pass 2.
@@ -283,10 +308,19 @@ verdict, synthesize a verdict entry and append it to `audit_history.jsonl` via `
 {"verdict": "APPROVED", "round": <current>, "pass": 2, "findings": [], "contract_concerns": [], "notes": "auditor returned malformed JSON twice; pass treated as approved by Mayor"}
 ```
 
-Then log a `pass2_synthetic_approval <slug>` line to `$RUN_DIR/run.log` and surface in Phase 6's unresolved section.
+> **run.log — emit on synthetic approval:** when you fall back to the
+> synthetic verdict above, append:
+> `echo "$(date -Iseconds) pass2_synthetic_approval slug=<slug>" >> $RUN_DIR/run.log`,
+> and surface it in Phase 6's unresolved section. (You still emit the
+> normal `audit_pass2` line below, with `verdict=APPROVED`.)
 
 Append the verdict to history (same `audit_log.append` invocation as
 Pass 1, but with `pass: 2`).
+
+> **run.log — emit after every Pass 2:** append:
+> `echo "$(date -Iseconds) audit_pass2 slug=<slug> round=<n> verdict=<APPROVED|NEEDS_REVISION>" >> $RUN_DIR/run.log`.
+> Emit this for every Pass 2 outcome, including the synthetic-approval
+> fallback (verdict=APPROVED).
 
 **If `APPROVED`**: worker is done. Proceed to next worker in the layer.
 
@@ -295,8 +329,9 @@ round+1 from Pass 1.
 
 ### Worker re-dispatch (for NEEDS_REVISION)
 
-Re-issue an `Agent` call with `subagent_type: "council-worker"` and
-prompt:
+Re-issue an `Agent` call with `subagent_type: "council:council-worker"`
+(same namespaced worker agent type as the initial dispatch — see
+"Agent-type names" above) and prompt:
 
 **Findings format** — convert the verdict's `findings` array into a numbered prose list. Include severity, location, and issue text. Example for a verdict with two findings:
 
@@ -323,6 +358,13 @@ Address ONLY these findings. Do not rewrite work that was already
 approved. Update <workspace>/manifest.json when done.
 ```
 
+> **run.log — emit on EVERY re-dispatch:** whenever you re-issue the
+> worker via this section, append:
+> `echo "$(date -Iseconds) worker_redispatched slug=<slug> round=<n> reason=<pass1|pass2|phase5_seam>" >> $RUN_DIR/run.log`.
+> Set `reason` to `pass1` (Pass-1 NEEDS_REVISION), `pass2` (Pass-2
+> NEEDS_REVISION), or `phase5_seam` (re-dispatch driven by a Phase 5
+> seam break). Use `round=<n>` for the round the worker is entering.
+
 ### Convergence rule
 
 After round 1, if either Pass 1 or Pass 2 returned `NEEDS_REVISION`,
@@ -342,6 +384,13 @@ After round 2, regardless of verdict, **force-accept**: do not run
 round 3. If round 2 still flagged issues, log them as `unresolved` in
 the final report (Phase 6).
 
+> **run.log — emit on force-accept:** whenever a worker is force-accepted
+> with unresolved issues — i.e. a round-2 NEEDS_REVISION that hits the
+> hard ceiling, OR the 3rd Pass-1 NEEDS_REVISION within a single round
+> (see "Round counter semantics") — append:
+> `echo "$(date -Iseconds) force_accepted slug=<slug> round=2" >> $RUN_DIR/run.log`.
+> Mark the worker `UNRESOLVED` for the Phase 6 report.
+
 ### Per-layer loop discipline
 
 After each worker resolves to one of `APPROVED`, `UNRESOLVED` (force-accepted at round 2), or `FAILED` (worker double-failed before any audit), return to the outer Phase-3 layer loop and move to the next worker. Do NOT proceed to the next dependency layer until every worker in the current layer has resolved.
@@ -349,6 +398,11 @@ After each worker resolves to one of `APPROVED`, `UNRESOLVED` (force-accepted at
 ---
 
 ## Phase 5: Integration check
+
+> **run.log — emit on entry:** the first thing you do in Phase 5, append:
+> `echo "$(date -Iseconds) phase5_entered" >> $RUN_DIR/run.log`.
+> (Emit it once per Phase 5 entry; if Phase 5 re-runs after a seam
+> re-dispatch, emit it again on each entry.)
 
 After ALL workers have passed audit (or hit force-accept), read every
 worker's `manifest.json` and the contract together. Cross-check:
@@ -367,7 +421,17 @@ worker's `manifest.json` and the contract together. Cross-check:
 3. **File-write conflict scan.** Build the union of every worker's `files_written` array (from their manifest.json). If any file path appears in two or more workers' lists, that is a contract violation — neither worker should have written it without the contract declaring shared ownership. Treat as a broken seam: re-dispatch the workers involved with a precise description of the conflict.
 
 If you find any broken seam, **re-dispatch the responsible worker(s)**
-with a precise description of the seam break. This re-dispatch counts toward that worker's round budget (so if re-dispatching would push the worker into round 3 — i.e. the worker has already completed round 2 with both passes settled — you cannot re-dispatch further; append a `seam_unresolved <slug>` line to `$RUN_DIR/run.log`, surface in Phase 6, and continue Phase 5 with the remaining workers).
+via the "Worker re-dispatch" section in Phase 4, passing a precise
+description of the seam break as the findings (this is where you emit
+the `worker_redispatched ... reason=phase5_seam` line). This re-dispatch
+counts toward that worker's round budget, so if re-dispatching would
+push the worker into round 3 — i.e. the worker has already completed
+round 2 with both passes settled — you cannot re-dispatch further.
+
+> **run.log — emit when a seam can't be fixed:** when the round budget
+> blocks the seam re-dispatch, append:
+> `echo "$(date -Iseconds) seam_unresolved slug=<slug>" >> $RUN_DIR/run.log`,
+> surface it in Phase 6, and continue Phase 5 with the remaining workers.
 
 If a re-dispatch occurs, re-run Phase 4 (audit) for that worker, then
 re-run Phase 5. Cap Phase 5 iterations at 2 to prevent infinite loops.
@@ -386,7 +450,7 @@ Present to the user:
 **Workers:** <count>
 
 ## Per-worker results
-- **<slug>** (<specialty>): <APPROVED in round N | UNRESOLVED in round 2 | FAILED>
+- **<slug>** (<specialty>): <APPROVED in round N | UNRESOLVED (force-accepted at round <N>) | FAILED>
   - Artifacts: <list of paths under artifacts/>
   - Audit history: <run-dir>/workers/<slug>/audit_history.jsonl
 
@@ -406,13 +470,24 @@ addressed, workers that failed twice, or seams that could not be fixed>
 Then: "Anything to push back on? Tell me which worker(s) need a
 re-run, and I'll restart them at round 1."
 
-If the user pushes back, for each affected worker:
+If the user pushes back:
+
+> **run.log — emit on pushback:** append once, as soon as the user asks
+> for any re-run:
+> `echo "$(date -Iseconds) pushback_received" >> $RUN_DIR/run.log`.
+
+For each affected worker:
 1. Back up `audit_history.jsonl` to `audit_history.previous.jsonl`, then truncate `audit_history.jsonl` to empty.
 2. Back up the entire `artifacts/` directory to `artifacts.previous/` (move, don't copy — the new run produces fresh output), then re-create an empty `artifacts/`.
 3. Back up `manifest.json` to `manifest.previous.json`, then delete `manifest.json` (the re-dispatched worker writes a new one).
 4. Leave `contract.md` and all other workers' state untouched.
 
+> **run.log — emit per reset worker:** after resetting each affected
+> worker's state (steps 1–3), append one line for that worker:
+> `echo "$(date -Iseconds) worker_reset slug=<slug> reason=pushback" >> $RUN_DIR/run.log`.
+
 Then re-run Phases 3–5 for ONLY the affected workers, starting fresh at round 1. Other workers' artifacts, manifests, and audit histories are not modified.
 
-If the user accepts, write a final `run_completed` line to
-`$RUN_DIR/run.log` and end your turn.
+If the user accepts, append a final `run_completed` line to
+`$RUN_DIR/run.log` (`echo "$(date -Iseconds) run_completed" >> $RUN_DIR/run.log`)
+and end your turn.
