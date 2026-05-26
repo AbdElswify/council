@@ -1,6 +1,6 @@
 {
   "name": "council",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Flat multi-agent orchestration via /council — main session is the Mayor and dispatches dynamic specialist workers in parallel against an upfront integration contract, with two-pass audits (Mayor + neutral auditor) per worker.",
   "author": {
     "name": "Abdarrahman ElSwify",

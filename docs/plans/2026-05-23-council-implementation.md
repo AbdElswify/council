@@ -1953,7 +1953,7 @@ git commit -m "docs: expand README for v0.1.0"
 ```markdown
 # Changelog
 
-## v0.1.0 — 2026-MM-DD (TBD)
+## v0.1.0 — 2026-05-24
 
 Initial release.
 

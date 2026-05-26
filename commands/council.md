@@ -51,7 +51,7 @@ Required events:
 | `audit_pass2 slug=<slug> round=<n> verdict=<APPROVED|NEEDS_REVISION>` | each Pass 2 | Mayor |
 | `pass2_synthetic_approval slug=<slug>` | double-malformed auditor verdict | Mayor |
 | `worker_redispatched slug=<slug> round=<n> reason=<pass1|pass2|phase5_seam>` | every re-dispatch | Mayor |
-| `force_accepted slug=<slug> round=2` | round-2 NEEDS_REVISION reached force-accept | Mayor |
+| `force_accepted slug=<slug> round=<n>` | worker force-accepted: round-2 ceiling reached, OR 3rd Pass-1 NEEDS_REVISION within a single round (`<n>` = the round it fired in) | Mayor |
 | `phase5_entered` | start of Phase 5 | Mayor |
 | `seam_unresolved slug=<slug>` | Phase 5 seam break exceeds round budget | Mayor |
 | `pushback_received` | user pushes back in Phase 6 | Mayor |
@@ -388,8 +388,9 @@ the final report (Phase 6).
 > with unresolved issues — i.e. a round-2 NEEDS_REVISION that hits the
 > hard ceiling, OR the 3rd Pass-1 NEEDS_REVISION within a single round
 > (see "Round counter semantics") — append:
-> `echo "$(date -Iseconds) force_accepted slug=<slug> round=2" >> $RUN_DIR/run.log`.
-> Mark the worker `UNRESOLVED` for the Phase 6 report.
+> `echo "$(date -Iseconds) force_accepted slug=<slug> round=<n>" >> $RUN_DIR/run.log`,
+> where `<n>` is the round the force-accept fired in (2 for the hard ceiling,
+> or 1 for the 3rd-Pass-1 cap). Mark the worker `UNRESOLVED` for the Phase 6 report.
 
 ### Per-layer loop discipline
 

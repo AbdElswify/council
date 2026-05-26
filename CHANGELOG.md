@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.1.2 — 2026-05-25
+
+Closes the four follow-ups deferred from the v0.1.1 self-improvement run.
+
+### Fixed
+- `run.log` `force_accepted` event arg generalized from a hardcoded
+  `round=2` to `round=<n>` — force-accept can also fire in round 1 (the
+  3rd-Pass-1-NEEDS_REVISION-in-a-single-round cap), so the logged round is
+  now accurate.
+
+### Changed
+- `parse_verdict.py` now enforces verdict↔findings consistency that was
+  previously only asserted in the auditor prompt: an `APPROVED` verdict must
+  have empty `findings`, a `NEEDS_REVISION` verdict must list at least one,
+  and each finding must be an object with `severity` (`blocker`/`should-fix`)
+  and `issue` (string), plus an optional string `loc`. The `council-auditor`
+  prompt's findings field-rule documents the same.
+- Design-doc "Testing strategy" rewritten to distinguish the two test layers
+  — the pytest unit suite (now 65 tests) over the `scripts/` plumbing, and
+  the end-to-end scenario tests — instead of framing scenarios as the only
+  tests.
+- Implementation-plan CHANGELOG date placeholder (`2026-MM-DD (TBD)`)
+  corrected to the real `2026-05-24`.
+
+### Tests
+- 55 → 65 (added 10 findings-validation cases for `parse_verdict`).
+
 ## v0.1.1 — 2026-05-25
 
 Hardening release. Produced by a council self-improvement run (`/council`

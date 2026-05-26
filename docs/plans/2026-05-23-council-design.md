@@ -313,7 +313,20 @@ Runs are kept on disk. The Mayor does not consult prior runs by default
 
 ## Testing strategy
 
-Following tribunal's pattern (`tests/` directory at repo root):
+Two layers.
+
+**Unit tests (`tests/`, pytest).** The deterministic plumbing in `scripts/`
+(`run_id`, `init_run`, `init_worker`, `manifest`, `audit_log`,
+`parse_verdict`) is covered by a fast pytest suite (55 tests as of v0.1.1)
+written test-first. These pin slug/run-id formats, workspace creation,
+manifest validation (including nested element shapes), append-only audit
+history, and the auditor verdict parser (fenced-block extraction,
+last-block-wins, CRLF tolerance, and the frozen verdict schema). They run in
+well under a second and gate every change to the script layer.
+
+**Scenario tests (end-to-end, scripted prompts).** These exercise the
+prompt/orchestration layer that unit tests can't reach, following tribunal's
+pattern:
 
 - **Smoke test**: `/council write a haiku about <topic>` — exercises
   brainstorm → dispatch (1 worker) → audit → report. Tiny, runs in <2 min.

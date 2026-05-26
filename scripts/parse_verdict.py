@@ -5,6 +5,7 @@ import re
 
 VALID_VERDICTS = {"APPROVED", "NEEDS_REVISION"}
 VALID_PASSES = {1, 2}
+VALID_SEVERITIES = {"blocker", "should-fix"}
 # Opening fence: ```json then optional trailing spaces/tabs and a line break
 # (LF or CRLF). Body is captured non-greedily. Closing fence: the newline
 # before ``` is OPTIONAL, so a block whose JSON ends right against the closing
@@ -58,6 +59,41 @@ def parse(text: str) -> dict:
         raise VerdictError(
             f"findings must be a list; got {type(data['findings']).__name__}"
         )
+
+    # findings semantics: empty if and only if APPROVED. This mirrors the
+    # rule the council-auditor prompt promises, so a verdict that contradicts
+    # its own findings (e.g. APPROVED with open findings) is rejected here
+    # rather than silently trusted by the Mayor.
+    findings = data["findings"]
+    if data["verdict"] == "APPROVED" and findings:
+        raise VerdictError("an APPROVED verdict must have empty findings []")
+    if data["verdict"] == "NEEDS_REVISION" and not findings:
+        raise VerdictError(
+            "a NEEDS_REVISION verdict must list at least one finding"
+        )
+
+    # findings element shape: each is an object with severity (blocker|
+    # should-fix) and issue (str); loc is optional but must be a str if given.
+    for i, f in enumerate(findings):
+        if not isinstance(f, dict):
+            raise VerdictError(f"findings[{i}] must be an object; got {type(f).__name__}")
+        if "severity" not in f:
+            raise VerdictError(f"findings[{i}] missing 'severity'")
+        if f["severity"] not in VALID_SEVERITIES:
+            raise VerdictError(
+                f"findings[{i}].severity must be one of {sorted(VALID_SEVERITIES)}; "
+                f"got {f['severity']!r}"
+            )
+        if "issue" not in f:
+            raise VerdictError(f"findings[{i}] missing 'issue'")
+        if not isinstance(f["issue"], str):
+            raise VerdictError(
+                f"findings[{i}].issue must be a string; got {type(f['issue']).__name__}"
+            )
+        if "loc" in f and not isinstance(f["loc"], str):
+            raise VerdictError(
+                f"findings[{i}].loc must be a string; got {type(f['loc']).__name__}"
+            )
 
     # contract_concerns (required, list)
     if "contract_concerns" not in data:

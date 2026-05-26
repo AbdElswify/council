@@ -111,13 +111,73 @@ def test_multiline_body_without_trailing_newline():
         '  "verdict": "NEEDS_REVISION",\n'
         '  "round": 2,\n'
         '  "pass": 1,\n'
-        '  "findings": [],\n'
+        '  "findings": [{"severity": "blocker", "loc": "x.py:1", "issue": "boom"}],\n'
         '  "contract_concerns": []\n'
         "}```"
     )
     v = parse_verdict.parse(text)
     assert v["verdict"] == "NEEDS_REVISION"
     assert v["round"] == 2
+
+
+# --- Item 2: findings-empty-iff-APPROVED + findings[] element shape ---
+
+def _verdict(verdict, findings):
+    import json
+    return "```json\n" + json.dumps({
+        "verdict": verdict, "round": 1, "pass": 2,
+        "findings": findings, "contract_concerns": [],
+    }) + "\n```"
+
+def test_approved_with_nonempty_findings_raises():
+    bad = _verdict("APPROVED", [{"severity": "should-fix", "issue": "x"}])
+    with pytest.raises(parse_verdict.VerdictError, match="APPROVED.*empty findings"):
+        parse_verdict.parse(bad)
+
+def test_needs_revision_with_empty_findings_raises():
+    bad = _verdict("NEEDS_REVISION", [])
+    with pytest.raises(parse_verdict.VerdictError, match="NEEDS_REVISION.*at least one finding"):
+        parse_verdict.parse(bad)
+
+def test_finding_not_object_raises():
+    bad = _verdict("NEEDS_REVISION", ["oops"])
+    with pytest.raises(parse_verdict.VerdictError, match=r"findings\[0\] must be an object"):
+        parse_verdict.parse(bad)
+
+def test_finding_missing_severity_raises():
+    bad = _verdict("NEEDS_REVISION", [{"issue": "x"}])
+    with pytest.raises(parse_verdict.VerdictError, match=r"findings\[0\] missing 'severity'"):
+        parse_verdict.parse(bad)
+
+def test_finding_invalid_severity_raises():
+    bad = _verdict("NEEDS_REVISION", [{"severity": "critical", "issue": "x"}])
+    with pytest.raises(parse_verdict.VerdictError, match="severity must be"):
+        parse_verdict.parse(bad)
+
+def test_finding_missing_issue_raises():
+    bad = _verdict("NEEDS_REVISION", [{"severity": "blocker"}])
+    with pytest.raises(parse_verdict.VerdictError, match=r"findings\[0\] missing 'issue'"):
+        parse_verdict.parse(bad)
+
+def test_finding_issue_wrong_type_raises():
+    bad = _verdict("NEEDS_REVISION", [{"severity": "blocker", "issue": 5}])
+    with pytest.raises(parse_verdict.VerdictError, match="issue must be a string"):
+        parse_verdict.parse(bad)
+
+def test_finding_loc_wrong_type_raises():
+    bad = _verdict("NEEDS_REVISION", [{"severity": "blocker", "issue": "x", "loc": 5}])
+    with pytest.raises(parse_verdict.VerdictError, match="loc must be a string"):
+        parse_verdict.parse(bad)
+
+def test_valid_needs_revision_with_finding_passes():
+    text = _verdict("NEEDS_REVISION", [{"severity": "blocker", "loc": "x.py:1", "issue": "boom"}])
+    v = parse_verdict.parse(text)
+    assert v["verdict"] == "NEEDS_REVISION"
+    assert v["findings"][0]["severity"] == "blocker"
+
+def test_finding_loc_optional():
+    text = _verdict("NEEDS_REVISION", [{"severity": "should-fix", "issue": "no loc needed"}])
+    assert parse_verdict.parse(text)["verdict"] == "NEEDS_REVISION"
 
 def test_crlf_line_endings_parse():
     text = (

@@ -13,7 +13,7 @@
       },
       "description": "Flat multi-agent orchestration via /council. Main session is the Mayor; dispatches dynamic specialist workers in parallel against an upfront integration contract, with two-pass audits per worker.",
       "category": "agents",
-      "version": "0.1.1"
+      "version": "0.1.2"
     }
   ]
 }

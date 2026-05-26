@@ -100,7 +100,11 @@ verdict makes the Mayor re-run you):
 - `round` (required): an integer `>= 1`, matching the round you were told.
 - `pass` (required): the integer `2` (you are always Pass 2).
 - `findings` (required): a list. **Empty `[]` if and only if
-  `verdict` is `"APPROVED"`.** Non-empty implies `"NEEDS_REVISION"`.
+  `verdict` is `"APPROVED"`** — `parse_verdict.py` rejects an APPROVED
+  verdict that carries findings, and a NEEDS_REVISION verdict with none.
+  Each finding is an object with `severity` (exactly `"blocker"` or
+  `"should-fix"`), `issue` (string), and an optional `loc` (string,
+  e.g. `"artifacts/x.py:42"`).
 - `contract_concerns` (required): a list; empty `[]` if the contract is
   fine as-written.
 - `notes` (optional): a string; omit the key entirely unless needed.
